@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.pytest_cache/
+
+# Virtual environments
+.venv
+
+# Environment — copy .env.example to .env, never commit secrets
+.env
+
+# Training outputs
+wandb/
+logs/
+checkpoints/
+res/
+latest_checkpoint.pt
+
+# tests
+tests/
+
+# big file 
+generated_problems/gen_dim500_load50.pt
+generated_problems/gen_dim1000_load50.pt
+
+# others 
+docs/
+*.log
+
+
+.claude/  # Ignore files related to Claude, if any

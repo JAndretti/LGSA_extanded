@@ -1,0 +1,254 @@
+# ──────────────────────────────────────────────
+#  Sweep grids — one question per block
+# ──────────────────────────────────────────────
+# Each YAML document (--- separator) is a self-contained sweep group.
+# Inside a group, all listed keys are crossed (cartesian grid) — keep groups
+# small so each block answers ONE question. All keys not listed inherit
+# from HP.yaml (current best).
+#
+# Convention: dotted paths matching HP.yaml structure.
+# Run with:  uv run python -m src.sweep
+#
+# Block-naming convention: number + short label in the leading comment so
+# you can correlate W&B run groups back to the question being asked.
+
+
+# ══════════════════════════════════════════════
+# BLOCK 1 — PPO learning rates
+# Question: how sensitive is convergence to actor/critic LR?
+# Baseline: 3.0e-4 / 3.0e-4. Sweep one axis at a time.
+# ══════════════════════════════════════════════
+ppo.lr_actor: [1.0e-4, 3.0e-4, 1.0e-3]
+
+---
+
+# Same block, critic LR axis only
+ppo.lr_critic: [1.0e-4, 3.0e-4, 1.0e-3]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 2 — PPO clip range + epochs
+# Question: tighter clip with more epochs, or looser clip with fewer?
+# Baseline: clip=0.25, epochs=15.
+# ══════════════════════════════════════════════
+ppo.clip_range: [0.15, 0.25, 0.3]
+
+---
+
+ppo.ppo_epochs: [4, 8, 15]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 3 — Exploration / entropy
+# Question: does more entropy bonus help on this domain?
+# Baseline: entropy_coef=0.01.
+# ══════════════════════════════════════════════
+ppo.entropy_coef: [0.0, 0.001, 0.01]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 4 — Advantage estimation
+# Question: how much does GAE smoothing matter for this fixed-horizon SA?
+# Baseline: gae_lambda=0.99.
+# ══════════════════════════════════════════════
+ppo.gae_lambda: [0.9, 0.95, 0.97, 0.99]
+
+---
+
+ppo.gamma: [0.95, 0.99, 1.0]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 5 — KL / adaptive control
+# Question: is the adaptive KL controller saturating? Sweep its target.
+# Baseline: target_kl=0.03.
+# ══════════════════════════════════════════════
+ppo.target_kl: [0.01, 0.03, 0.05, 0.1]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 6 — Critic regularisation
+# Question: does the critic gradient penalty stabilise training?
+# Baseline: gp_lambda=0.01.
+# ══════════════════════════════════════════════
+ppo.gp_lambda: [0.0, 0.001, 0.01, 0.1]
+
+---
+
+ppo.weight_decay: [0.0, 1.0e-4, 1.0e-3, 1.0e-2]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 7 — Reward shaping
+# Question: which reward signal does the policy learn best from?
+# Baseline: immediate, not normalized. Test the obvious alternatives.
+# ══════════════════════════════════════════════
+sa.reward_mode:
+  - "immediate"
+  - "sa_aligned"
+  - "global_best"
+  - "curriculum"
+
+---
+
+# Effect of normalization within the chosen mode
+sa.normalize_reward: [false, true]
+
+---
+
+# Hybrid mix (only meaningful if reward_mode=hybrid; pair the two keys here)
+sa.reward_mode: ["hybrid"]
+sa.hybrid_alpha: [0.25, 0.5, 0.75]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 8 — Temperature schedule
+# Question: which annealing shape is best?
+# Baseline: lambda from 1.0 to 0.1 over outer_steps=100.
+# ══════════════════════════════════════════════
+sa.schedule: ["lambda", "step"]
+
+---
+
+sa.init_temp: [0.5, 1.0, 2.0]
+
+---
+
+sa.stop_temp: [0.01, 0.05, 0.1, 0.2]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 9 — SA horizon
+# Question: longer rollouts vs more epochs — what's the budget sweet spot?
+# Baseline: outer_steps=100.
+# ══════════════════════════════════════════════
+sa.outer_steps: [50, 100, 200, 400]
+
+---
+
+sa.metropolis: [false, true]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 10 — Curriculum schedule
+# Question: does the deterministic pretraining warm-up help, and how steep?
+# Baseline: enabled=true, steepness=0.01, max_outer_steps=500.
+# ══════════════════════════════════════════════
+
+
+# ---
+# curriculum.enabled: [true]
+# curriculum.type: ["sig"]
+# curriculum.steepness: [0.005, 0.01, 0.05]
+# curriculum.max_outer_steps: [200, 500, 1000]
+# curriculum.max_prob_step: [500, 1000]
+# ---
+# curriculum.enabled: [true]
+# curriculum.type: ["lin"]
+# curriculum.max_outer_steps: [200, 500, 1000]
+# curriculum.max_prob_step: [500, 1000]
+
+# ---
+
+# ══════════════════════════════════════════════
+# BLOCK 11 — Initial solution heuristic
+# Question: does the starting distribution matter when SA has 100 steps?
+# Baseline: random.
+# ══════════════════════════════════════════════
+
+---
+sa.init:
+  - "random"
+  - "sweep"
+
+---
+
+# Multi-init: start with one method then expand to a portfolio
+sa.multi_init: [false, true]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 12 — Local heuristic + mask method
+# Question: insertion vs swap vs two_opt under the "valid" mask.
+# Baseline: insertion + valid.
+# ══════════════════════════════════════════════
+problem.heuristic: ["insertion", "swap", "two_opt"]
+
+---
+
+problem.update_method: ["free", "valid"]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 13 — Model capacity
+# Question: is the policy underparameterised at embed_dim=32?
+# Baseline: embed_dim=32, num_hidden_layers=2.
+# ══════════════════════════════════════════════
+model.embed_dim: [16, 32, 64]
+
+---
+
+model.num_hidden_layers: [1, 2]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 14 — Feature ablation (each feature group off independently)
+# Question: which engineered features pull weight? Toggle one off at a time
+# against the full feature set as baseline.
+# ══════════════════════════════════════════════
+model.feature_flags.density5: [false, true]
+
+---
+
+model.feature_flags.density10: [false, true]
+
+---
+
+model.feature_flags.density33: [false, true]
+
+---
+
+model.feature_flags.detour: [false, true]
+
+---
+
+model.feature_flags.centroid: [false, true]
+
+---
+
+model.feature_flags.topology: [false, true]
+
+---
+
+# Per-route status (route_pct currently off — flip it on)
+model.feature_flags.route_pct: [false, true]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 15 — Precision / compile
+# Question: does fp32 or bf16 buy us anything at this scale?
+# Baseline: fp16.
+# ══════════════════════════════════════════════
+training.precision: ["fp16", "bf16", "fp32"]
+
+---
+
+# ══════════════════════════════════════════════
+# BLOCK 16 — Seed variance (run AFTER picking a config)
+# Question: how much of the observed gain is signal vs noise?
+# Run this last, with the new best config from earlier blocks frozen in HP.yaml.
+# ══════════════════════════════════════════════
+training.seed: [42, 1337, 0, 2023, 7]

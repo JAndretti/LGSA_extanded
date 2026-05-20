@@ -1,0 +1,112 @@
+# Hyperparameters for LG-SA learning rewrite.
+
+wandb:
+  mode: "online"
+  project: "lg-sa-cvrp"
+  group: "lg-sa-baseline"
+  name: "baseline-run"
+  tags: ["lg-sa", "ppo", "cvrp"]
+  notes: ""
+
+training:
+  num_epochs: 500
+  seed: 42
+  device: "auto"
+  precision: "fp16"
+  compile: false
+  early_stop_patience: 5
+
+problem:
+  dim: 50
+  n_problems: 250
+  max_load: 40
+  heuristic: "insertion"
+  update_method: "valid"
+  max_routes_estimate: 20
+
+model:
+  embed_dim: 32
+  num_hidden_layers: 1
+  feature_flags:
+    static:      true
+    topology:    true
+    density5:    True
+    density10:   true
+    density33:   true
+    detour:      true
+    centroid:    true
+    route_pct:   false
+    slack:       true
+    node_pct:    true
+    meta:        true
+
+sa:
+  outer_steps: 100
+  metropolis: true
+  schedule: "lambda"
+  init_temp: 1.0
+  stop_temp: 0.1
+  init: "random"
+  init_list: ["random", "sweep", "nearest_neighbor"]
+  multi_init: false
+  multi_init_step: 200
+  reward_mode: "immediate"
+  normalize_reward: False
+  reward_scale: 1.0
+  hybrid_alpha: 0.5
+
+ppo:
+  ppo_epochs: 10
+  batch_size: 1048
+  gamma: 0.99
+  gae_lambda: 0.99
+  clip_range: 0.25
+  entropy_coef: 0.01
+  value_coef: 0.3
+  grad_clip: 1.0
+  weight_decay: 0.001
+  lr_actor: 3.0e-4
+  lr_critic: 3.0e-4
+  beta_kl: 1.0
+  target_kl: 0.03
+  gp_lambda: 0.01
+  beta_min: 1.0e-3
+  beta_max: 10.0
+  lr_min: 1.0e-5
+  lr_max: 1.0e-3
+
+curriculum:
+  enabled: false
+  type: "sig"
+  steepness: 0.01
+  max_outer_steps: 500
+  max_prob_step: 1000
+
+eval:
+  dim: 50
+  n_problems: 1000
+  outer_steps: 1000
+  schedule: "lambda"
+  init: "random"
+  greedy: false
+  save_period: 5
+  instances_dir: "generated_problems"   # pre-generated test set (loaded if matching (dim, max_load) exists)
+
+final_eval:
+  enabled: False
+  dim: 100
+  max_load: 50            # must match a file in instances_dir (e.g. gen_dim100_load50.pt)
+  n_problems: 10000        # first N from the generated dataset
+  outer_steps: 10000
+  schedule: "lambda"
+  init: "random"
+  greedy: true
+
+checkpointing:
+  save_dir: "checkpoints"
+  top_k: 3
+  monitor: "eval/min_cost"
+  mode: "min"
+
+resume:
+  checkpoint: null
