@@ -18,6 +18,7 @@ from tensordict import TensorDict
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from src.cvrp.feasibility import get_action_mask
 from src.model.actor import CVRPActor
 from src.model import build_actor
 from src.model.base import apply_mask_c1, apply_mask_c2
@@ -59,7 +60,9 @@ def build_actor_from_config(
     net (via src.model.build_actor), then loads the actor state from
     ckpt_path. Returns the actor in eval() mode, cast to `dtype`.
     """
-    actor = build_actor(run_cfg, device)
+    heuristic = run_cfg["problem"]["heuristic"]
+    mask_fn = lambda td, c1: get_action_mask(td, c1, heuristic)
+    actor = build_actor(run_cfg, device, get_action_mask_fn=mask_fn)
     state_dict = load_actor_state(ckpt_path, device)
     actor.load_state_dict(state_dict, strict=True)
     actor = actor.to(dtype)
@@ -97,9 +100,11 @@ class UniformActor(nn.Module):
     """Drop-in replacement for CVRPActor that samples uniformly over the valid
     mask. Used by the baseline arm. Writes the same out_keys as CVRPActor.
 
-    Matches the masking regime currently wired in train.py: no
-    `get_action_mask_fn` (so method='valid' falls through to 'free' semantics
-    in apply_mask_c2).
+    Intentionally unmasked (no capacity-aware action mask) — this is the
+    "random walk under the SA loop" baseline. The learned actor receives the
+    feasibility mask via build_actor_from_config; the baseline stays raw on
+    purpose so the comparison is "policy vs. no policy", not "masked random
+    vs. learned".
 
     No silent fallback: if a row has zero valid c1 or c2 positions, the
     underlying `torch.multinomial` will raise, surfacing the upstream bug

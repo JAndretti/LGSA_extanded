@@ -19,6 +19,7 @@ logs/
 checkpoints/
 res/
 latest_checkpoint.pt
+results/
 
 # tests
 tests/

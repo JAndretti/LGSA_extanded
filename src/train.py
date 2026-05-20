@@ -19,6 +19,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from tqdm import tqdm
 
 import wandb
+from src.cvrp.feasibility import get_action_mask
 from src.cvrp.init_heuristics import generate_init_solutions
 from src.cvrp.instances import generate_random_instances
 from src.cvrp.state import init_state
@@ -119,7 +120,9 @@ def main():
             max_load=cfg["problem"]["max_load"],
         )
 
-    actor = build_actor(cfg, device)
+    heuristic = cfg["problem"]["heuristic"]
+    mask_fn = lambda td, c1: get_action_mask(td, c1, heuristic)
+    actor = build_actor(cfg, device, get_action_mask_fn=mask_fn)
     critic = build_critic(cfg, device)
     if device.type != "mps" and wcfg["mode"] != "disabled":
         wandb.watch([actor, critic], log="all", log_freq=100)

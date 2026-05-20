@@ -8,6 +8,7 @@ The --dataset flag dispatches to handler_<dataset>.py inside this folder.
 Only handler_random is implemented; the other handlers are stubs that raise
 NotImplementedError.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -17,16 +18,14 @@ import sys
 
 import torch
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 HANDLERS: dict[str, str] = {
-    "random":  "eval.handler_random",
-    "X":       "eval.handler_X",
+    "random": "eval.handler_random",
+    "X": "eval.handler_X",
     "X_batch": "eval.handler_X_batch",
-    "XL":      "eval.handler_XL",
-    "XML":     "eval.handler_XML",
+    "XL": "eval.handler_XL",
+    "XML": "eval.handler_XML",
 }
 
 
@@ -52,26 +51,39 @@ def main() -> None:
     pre_args, _ = pre.parse_known_args()
     handler = (
         importlib.import_module(HANDLERS[pre_args.dataset])
-        if pre_args.dataset else None
+        if pre_args.dataset
+        else None
     )
 
     # Pass 2: full parser, including handler-specific args.
     parser = argparse.ArgumentParser(description="LG-SA evaluation entry point")
-    parser.add_argument("--dataset", required=True, choices=HANDLERS.keys())
-    parser.add_argument("--project", required=True,
-                        help="W&B project name (dir under wandb/)")
-    parser.add_argument("--group", required=True,
-                        help="W&B group name (dir under wandb/<project>/)")
+    parser.add_argument("--dataset", default="random", choices=HANDLERS.keys())
     parser.add_argument(
-        "--INIT", type=str, default="random",
-        choices=["random", "isolate", "sweep", "nearest_neighbor",
-                 "Clark_and_Wright", "farthest_insertion"],
+        "--project", required=True, help="W&B project name (dir under wandb/)"
+    )
+    parser.add_argument(
+        "--group", required=True, help="W&B group name (dir under wandb/<project>/)"
+    )
+    parser.add_argument(
+        "--INIT",
+        type=str,
+        default="random",
+        choices=[
+            "random",
+            "isolate",
+            "sweep",
+            "nearest_neighbor",
+            "Clark_and_Wright",
+            "farthest_insertion",
+        ],
     )
     parser.add_argument("--OUTER_STEPS", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--device", type=str, default=_auto_device())
     parser.add_argument(
-        "--dtype", type=str, default="float32",
+        "--dtype",
+        type=str,
+        default="float32",
         choices=["float32", "bfloat16", "float16"],
     )
     if handler is not None:
