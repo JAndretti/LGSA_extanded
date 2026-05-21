@@ -28,6 +28,9 @@ tests/
 generated_problems/gen_dim500_load50.pt
 generated_problems/gen_dim1000_load50.pt
 
+# uv 
+uv.toml
+
 # others 
 docs/
 *.log
