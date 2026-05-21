@@ -20,14 +20,12 @@ from src.sa.temperature import make_schedule
 def evaluate(
     actor,
     test_static: TensorDict,
+    init_sol: torch.Tensor,
     cfg: dict,
     autocast_ctx=None,
 ) -> dict:
     """SA on the fixed test set. Returns aggregated metrics."""
-    sol = generate_init_solutions(
-        test_static, [cfg["eval"]["init"]], False, cfg["problem"]["max_routes_estimate"]
-    )
-    state = init_state(test_static, sol)
+    state = init_state(test_static, solution=init_sol)
     sched = make_schedule(
         cfg["eval"]["schedule"],
         T_max=cfg["sa"]["init_temp"],
@@ -124,9 +122,13 @@ def run_final_sa(
     start = time.perf_counter()
     with torch.inference_mode(), ctx:
         res = sa_collect(
-            actor, state, sched, view_cfg,
+            actor,
+            state,
+            sched,
+            view_cfg,
             total_steps=fcfg["outer_steps"],
-            train=False, greedy=fcfg["greedy"],
+            train=False,
+            greedy=fcfg["greedy"],
         )
     elapsed = time.perf_counter() - start
 
@@ -141,27 +143,38 @@ def run_final_sa(
 
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow([
-            "problem_idx", "init_cost", "best_cost", "gain", "best_step", "n_accepted",
-        ])
+        w.writerow(
+            [
+                "problem_idx",
+                "init_cost",
+                "best_cost",
+                "gain",
+                "best_step",
+                "n_accepted",
+            ]
+        )
         for i in range(n):
-            w.writerow([
-                i,
-                f"{init_cost[i].item():.6f}",
-                f"{best_cost[i].item():.6f}",
-                f"{(init_cost[i] - best_cost[i]).item():.6f}",
-                int(best_step[i].item()),
-                int(n_acc[i].item()),
-            ])
+            w.writerow(
+                [
+                    i,
+                    f"{init_cost[i].item():.6f}",
+                    f"{best_cost[i].item():.6f}",
+                    f"{(init_cost[i] - best_cost[i]).item():.6f}",
+                    int(best_step[i].item()),
+                    int(n_acc[i].item()),
+                ]
+            )
         # Aggregate footer row (marked with a sentinel id)
-        w.writerow([
-            "AGGREGATE",
-            f"{init_cost.mean().item():.6f}",
-            f"{best_cost.mean().item():.6f}",
-            f"{(init_cost - best_cost).mean().item():.6f}",
-            f"{best_step.float().mean().item():.2f}",
-            f"{n_acc.float().mean().item():.2f}",
-        ])
+        w.writerow(
+            [
+                "AGGREGATE",
+                f"{init_cost.mean().item():.6f}",
+                f"{best_cost.mean().item():.6f}",
+                f"{(init_cost - best_cost).mean().item():.6f}",
+                f"{best_step.float().mean().item():.2f}",
+                f"{n_acc.float().mean().item():.2f}",
+            ]
+        )
         w.writerow([])
         w.writerow(["# n_problems", n])
         w.writerow(["# outer_steps", fcfg["outer_steps"]])

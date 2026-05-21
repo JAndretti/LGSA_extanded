@@ -77,6 +77,7 @@ def sa_collect(
     n_problems = state.batch_size[0]
     actor_ctx = autocast_ctx if autocast_ctx is not None else nullcontext()
 
+    raw_temp = torch.full((n_problems,), float(init_temp), device=device)
     state.set("temp", torch.full((n_problems, 1), 1.0, device=device))
     state.set("progress", torch.full((n_problems, 1), 1.0, device=device))
     state.set("observation", build_features(state, flags))
@@ -109,7 +110,7 @@ def sa_collect(
         improvement = (current_cost - new_cost).float()
         if cfg["sa"]["metropolis"]:
             accepted, actual_improvement = metropolis_accept(
-                improvement, state["temp"].float()
+                improvement, raw_temp
             )
         else:
             accepted = torch.ones_like(improvement, dtype=torch.long)
@@ -131,10 +132,10 @@ def sa_collect(
         best_step = torch.where(is_imp, torch.full_like(best_step, step + 1), best_step)
 
         next_temp = temperature_schedule(step).to(device).float()
-        next_temp_v = (
+        raw_temp = (
             next_temp.expand(n_problems) if next_temp.dim() == 0 else next_temp
         )
-        state.set("temp", _scale_to_unit(next_temp_v, stop_temp, init_temp).view(-1, 1))
+        state.set("temp", _scale_to_unit(raw_temp, stop_temp, init_temp).view(-1, 1))
         state.set(
             "progress",
             torch.full(

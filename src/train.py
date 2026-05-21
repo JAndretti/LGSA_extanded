@@ -27,7 +27,12 @@ from src.data.loader import load_eval_instances
 from src.eval.evaluate import evaluate, run_final_sa
 from src.model import build_actor, build_critic
 from src.ppo.adaptive import AdaptiveKLController
-from src.ppo.update import LGSAPPOLoss, make_advantage_module, ppo_update
+from src.ppo.update import (
+    LGSAPPOLoss,
+    compute_advantages,
+    make_advantage_module,
+    ppo_update,
+)
 from src.sa.curriculum import active_init_methods, curriculum_pretrain_steps
 from src.sa.loop import sa_collect
 from src.sa.temperature import make_schedule
@@ -154,6 +159,7 @@ def main():
         clip_epsilon=cfg["ppo"]["clip_range"],
         entropy_coeff=cfg["ppo"]["entropy_coef"],
         critic_coeff=cfg["ppo"]["value_coef"],
+        clip_value=cfg["ppo"]["clip_range"],
         functional=False,
     )
     advantage_module = make_advantage_module(critic, cfg)
@@ -166,7 +172,13 @@ def main():
         lr_max=cfg["ppo"]["lr_max"],
     )
 
-    init_eval = evaluate(actor, test_static, cfg, autocast_ctx=autocast_ctx)
+    init_state_eval = generate_init_solutions(
+        test_static, [cfg["eval"]["init"]], False, cfg["problem"]["max_routes_estimate"]
+    )
+
+    init_eval = evaluate(
+        actor, test_static, init_state_eval, cfg, autocast_ctx=autocast_ctx
+    )
     a_min_cost = init_eval["eval/min_cost"]
     best_eval_loss = float("inf")
     early_stop = 0
@@ -186,8 +198,10 @@ def main():
     if resume_path:
         start_epoch = load_checkpoint(
             resume_path,
-            models=_ckpt_models, optimizers=_ckpt_optimizers,
-            schedulers=_ckpt_schedulers, extra=_ckpt_extra,
+            models=_ckpt_models,
+            optimizers=_ckpt_optimizers,
+            schedulers=_ckpt_schedulers,
+            extra=_ckpt_extra,
             device=device,
         )
         # The adaptive controller's beta_kl is restored; propagate back to cfg
@@ -261,7 +275,7 @@ def main():
 
         # E. GAE + advantage normalization
         with torch.no_grad():
-            advantage_module(transitions)
+            compute_advantages(advantage_module, critic, transitions, cfg)
         adv = transitions["advantage"]
         transitions["advantage"] = (adv - adv.mean()) / (adv.std() + 1e-8)
 
@@ -290,21 +304,28 @@ def main():
             "train/best_cost": sa_results["best_cost"].mean().item(),
         }
         if epoch % save_period == 0:
-            eval_metrics = evaluate(actor, test_static, cfg, autocast_ctx=autocast_ctx)
+            eval_metrics = evaluate(
+                actor, test_static, init_state_eval, cfg, autocast_ctx=autocast_ctx
+            )
             a_min_cost = min(a_min_cost, eval_metrics["eval/min_cost"])
             log_dict.update(eval_metrics)
             log_dict["eval/a_min_cost"] = a_min_cost
             log_dict["early_stopping_counter"] = early_stop
 
             ckpt_manager.update(
-                epoch, eval_metrics["eval/min_cost"],
-                models=_ckpt_models, optimizers=_ckpt_optimizers,
-                schedulers=_ckpt_schedulers, extra=_ckpt_extra,
+                epoch,
+                eval_metrics["eval/min_cost"],
+                models=_ckpt_models,
+                optimizers=_ckpt_optimizers,
+                schedulers=_ckpt_schedulers,
+                extra=_ckpt_extra,
             )
             save_checkpoint(
                 os.path.join(run.dir, "latest_checkpoint.pt"),
-                models=_ckpt_models, optimizers=_ckpt_optimizers,
-                schedulers=_ckpt_schedulers, extra=_ckpt_extra,
+                models=_ckpt_models,
+                optimizers=_ckpt_optimizers,
+                schedulers=_ckpt_schedulers,
+                extra=_ckpt_extra,
                 epoch=epoch,
             )
 

@@ -50,13 +50,51 @@ class LGSAPPOLoss(ClipPPOLoss):
 
 
 def make_advantage_module(critic, cfg: dict) -> GAE:
-    """GAE module reading 'state_value' from critic and writing 'advantage' + 'value_target'."""
+    """GAE module reading 'state_value' from critic and writing 'advantage' + 'value_target'.
+
+    When cfg.ppo.gae_chunk_size > 0 the GAE is built without a value_network and
+    expects 'state_value' + ('next','state_value') to be pre-filled by
+    compute_advantages() (which calls the critic in chunks). Otherwise GAE owns
+    the critic call and runs it on the full (T, B, ...) transitions in one shot.
+    """
+    chunk_size = int(cfg["ppo"].get("gae_chunk_size", 0))
     return GAE(
         gamma=cfg["ppo"]["gamma"],
         lmbda=cfg["ppo"]["gae_lambda"],
-        value_network=critic,
+        value_network=None if chunk_size > 0 else critic,
         average_gae=False,
     )
+
+
+def _prefill_state_value(critic, td, chunk_size: int) -> None:
+    """Write td['state_value'] by calling critic on flattened chunks of td."""
+    flat = td.reshape(-1)
+    n = flat.batch_size[0]
+    parts = []
+    for i in range(0, n, chunk_size):
+        chunk = flat[i:i + chunk_size].clone()
+        critic(chunk)
+        parts.append(chunk["state_value"])
+    state_value = torch.cat(parts, 0).view(*td.batch_size, *parts[0].shape[1:])
+    td.set("state_value", state_value)
+
+
+def compute_advantages(advantage_module, critic, transitions, cfg: dict) -> None:
+    """Run GAE on transitions, optionally chunking the critic pre-pass.
+
+    cfg.ppo.gae_chunk_size <= 0: GAE calls the critic on the full (T, B, ...)
+    block — fastest when VRAM allows.
+    cfg.ppo.gae_chunk_size  > 0: pre-fill state_value for both transitions and
+    transitions['next'] in chunks of that many flattened steps, then run GAE
+    (which reads the pre-filled values since value_network is None).
+
+    Caller owns the torch.no_grad() context.
+    """
+    chunk_size = int(cfg["ppo"].get("gae_chunk_size", 0))
+    if chunk_size > 0:
+        _prefill_state_value(critic, transitions, chunk_size)
+        _prefill_state_value(critic, transitions["next"], chunk_size)
+    advantage_module(transitions)
 
 
 def critic_gradient_penalty(critic, obs: torch.Tensor) -> torch.Tensor:
@@ -100,6 +138,7 @@ def ppo_update(
     ppo_epochs = cfg["ppo"]["ppo_epochs"]
     grad_clip = cfg["ppo"]["grad_clip"]
     gp_lambda = cfg["ppo"]["gp_lambda"]
+    separate_backward = bool(cfg["ppo"].get("separate_backward", False))
     actor_ctx = autocast_ctx if autocast_ctx is not None else nullcontext()
 
     with torch.no_grad():
@@ -137,21 +176,44 @@ def ppo_update(
                     critic, batch["observation"]
                 )
 
-            total_loss = actor_loss + critic_loss
-            if torch.isnan(total_loss):
-                continue
-            if scaler is not None:
-                scaler.scale(total_loss).backward()
-                scaler.unscale_(actor_opt)
-                nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
-                scaler.unscale_(critic_opt)
-                nn.utils.clip_grad_norm_(critic.parameters(), grad_clip)
-                scaler.step(actor_opt); scaler.step(critic_opt); scaler.update()
+            if separate_backward:
+                # Old-style: independent backward+step per network. Actor and
+                # critic are separate modules so their graphs don't overlap.
+                if torch.isnan(actor_loss) or torch.isnan(critic_loss):
+                    continue
+                if scaler is not None:
+                    scaler.scale(actor_loss).backward()
+                    scaler.unscale_(actor_opt)
+                    nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
+                    scaler.step(actor_opt)
+                    scaler.scale(critic_loss).backward()
+                    scaler.unscale_(critic_opt)
+                    nn.utils.clip_grad_norm_(critic.parameters(), grad_clip)
+                    scaler.step(critic_opt)
+                    scaler.update()
+                else:
+                    actor_loss.backward()
+                    nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
+                    actor_opt.step()
+                    critic_loss.backward()
+                    nn.utils.clip_grad_norm_(critic.parameters(), grad_clip)
+                    critic_opt.step()
             else:
-                total_loss.backward()
-                nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
-                nn.utils.clip_grad_norm_(critic.parameters(), grad_clip)
-                actor_opt.step(); critic_opt.step()
+                total_loss = actor_loss + critic_loss
+                if torch.isnan(total_loss):
+                    continue
+                if scaler is not None:
+                    scaler.scale(total_loss).backward()
+                    scaler.unscale_(actor_opt)
+                    nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
+                    scaler.unscale_(critic_opt)
+                    nn.utils.clip_grad_norm_(critic.parameters(), grad_clip)
+                    scaler.step(actor_opt); scaler.step(critic_opt); scaler.update()
+                else:
+                    total_loss.backward()
+                    nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
+                    nn.utils.clip_grad_norm_(critic.parameters(), grad_clip)
+                    actor_opt.step(); critic_opt.step()
 
             losses_acc["loss_objective"].append(float(out["loss_objective"].detach()))
             if "loss_critic" in out.keys():
